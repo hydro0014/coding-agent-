@@ -1,8 +1,17 @@
 import { NextRequest } from "next/server";
 import { model, SYSTEM_PROMPT } from "@/lib/gemini";
 import { tools, toolDefinitions, ToolName } from "@/lib/tools";
+import { Part, FunctionDeclaration } from "@google/generative-ai";
 
 export const dynamic = "force-dynamic";
+
+interface AgentUpdate {
+  type: "status" | "thought" | "tool_call" | "tool_result" | "done" | "error";
+  message?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+}
 
 export async function POST(req: NextRequest) {
   const { prompt } = await req.json();
@@ -16,7 +25,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const sendUpdate = (data: any) => {
+      const sendUpdate = (data: AgentUpdate) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
@@ -32,7 +41,7 @@ export async function POST(req: NextRequest) {
               parts: [{ text: "Understood. I am ready to assist as your expert AI software engineer." }],
             },
           ],
-          tools: [{ functionDeclarations: toolDefinitions as any }],
+          tools: [{ functionDeclarations: toolDefinitions as unknown as FunctionDeclaration[] }],
         });
 
         sendUpdate({ type: "status", message: "Analyzing task and planning..." });
@@ -45,9 +54,11 @@ export async function POST(req: NextRequest) {
 
         while (iterations < maxIterations) {
           iterations++;
-          const parts = response.candidates?.[0]?.content?.parts || [];
-          const toolCalls = parts.filter((part: any) => part.functionCall);
-          const textResponse = parts.filter((part: any) => part.text).map((part: any) => part.text).join("\n");
+          const candidate = response.candidates?.[0];
+          const parts = candidate?.content?.parts || [];
+
+          const toolCalls = parts.filter(part => part.functionCall);
+          const textResponse = parts.filter(part => part.text).map(part => part.text).join("\n");
 
           if (textResponse) {
             sendUpdate({ type: "thought", message: textResponse });
@@ -57,15 +68,16 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          const toolResponses = [];
+          const toolResponses: Part[] = [];
           for (const call of toolCalls) {
+            if (!call.functionCall) continue;
+
             const { name, args } = call.functionCall;
-            sendUpdate({ type: "tool_call", name, args });
+            sendUpdate({ type: "tool_call", name, args: args as Record<string, unknown> });
 
             const toolFn = tools[name as ToolName];
             if (toolFn) {
-              // Pass args object directly to the tool function
-              const toolResult = await (toolFn as any)(args);
+              const toolResult = await (toolFn as (args: unknown) => Promise<unknown>)(args);
               toolResponses.push({
                 functionResponse: {
                   name,
@@ -89,9 +101,10 @@ export async function POST(req: NextRequest) {
 
         sendUpdate({ type: "done", message: "Task completed." });
         controller.close();
-      } catch (error: any) {
-        console.error("Agent Error:", error);
-        sendUpdate({ type: "error", message: error.message });
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Agent Error:", errorMessage);
+        sendUpdate({ type: "error", message: errorMessage });
         controller.close();
       }
     },

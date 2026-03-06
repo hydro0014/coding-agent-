@@ -2,29 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { Folder, File, RefreshCw, ChevronRight, ChevronDown } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-
-interface FileItem {
-  name: string;
-  isDirectory: boolean;
-  path: string;
-  children?: FileItem[];
-}
+import { FileItem } from "@/lib/tools";
 
 export default function FileTree() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
 
   const fetchFiles = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // For simplicity, we just list the root. In a real app, this would be recursive or fetch on demand.
       const res = await fetch("/api/files");
       const data = await res.json();
-      setFiles(data);
+
+      if (Array.isArray(data)) {
+        setFiles(data);
+      } else if (typeof data === "string") {
+        setError(data);
+        setFiles([]);
+      } else {
+        setError("Invalid response from server");
+        setFiles([]);
+      }
     } catch (error) {
       console.error("Failed to fetch files", error);
+      setError("Connection error");
     } finally {
       setLoading(false);
     }
@@ -57,7 +61,7 @@ export default function FileTree() {
             <File size={16} className="text-zinc-500" />
           </>
         )}
-        <span>{item.name}</span>
+        <span className="truncate">{item.name}</span>
       </div>
     </div>
   );
@@ -74,7 +78,13 @@ export default function FileTree() {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {files.map(renderItem)}
+        {error ? (
+          <div className="text-xs text-red-500 p-2 italic">{error}</div>
+        ) : files.length === 0 && !loading ? (
+          <div className="text-xs text-zinc-600 p-2 italic">No files found</div>
+        ) : (
+          files.map(renderItem)
+        )}
       </div>
     </div>
   );

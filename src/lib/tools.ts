@@ -5,8 +5,26 @@ import { promisify } from 'util';
 
 const execPromise = promisify(exec);
 
+export interface FileItem {
+  name: string;
+  isDirectory: boolean;
+  path: string;
+}
+
+export interface ShellResult {
+  stdout: string;
+  stderr: string;
+  success: boolean;
+  error?: string;
+}
+
+interface ExecError extends Error {
+  stdout?: string;
+  stderr?: string;
+}
+
 export const tools = {
-  async listFiles({ dir = '.' }: { dir?: string } = {}) {
+  async listFiles({ dir = '.' }: { dir?: string } = {}): Promise<FileItem[] | string> {
     try {
       const files = await fs.readdir(dir, { withFileTypes: true });
       return files.map(file => ({
@@ -14,41 +32,41 @@ export const tools = {
         isDirectory: file.isDirectory(),
         path: path.join(dir, file.name)
       }));
-    } catch (error: any) {
-      return `Error listing files: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error listing files: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
 
-  async readFile({ filepath }: { filepath: string }) {
+  async readFile({ filepath }: { filepath: string }): Promise<string> {
     try {
       const content = await fs.readFile(filepath, 'utf-8');
       return content;
-    } catch (error: any) {
-      return `Error reading file: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error reading file: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
 
-  async writeFile({ filepath, content }: { filepath: string; content: string }) {
+  async writeFile({ filepath, content }: { filepath: string; content: string }): Promise<string> {
     try {
       const dir = path.dirname(filepath);
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(filepath, content, 'utf-8');
       return `Successfully written to ${filepath}`;
-    } catch (error: any) {
-      return `Error writing file: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error writing file: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
 
-  async deleteFile({ filepath }: { filepath: string }) {
+  async deleteFile({ filepath }: { filepath: string }): Promise<string> {
     try {
       await fs.unlink(filepath);
       return `Successfully deleted ${filepath}`;
-    } catch (error: any) {
-      return `Error deleting file: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error deleting file: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
 
-  async runShellCommand({ command }: { command: string }) {
+  async runShellCommand({ command }: { command: string }): Promise<ShellResult> {
     try {
       const { stdout, stderr } = await execPromise(command);
       return {
@@ -56,12 +74,13 @@ export const tools = {
         stderr,
         success: true
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const execError = error as ExecError;
       return {
-        stdout: error.stdout,
-        stderr: error.stderr,
+        stdout: execError.stdout || "",
+        stderr: execError.stderr || "",
         success: false,
-        error: error.message
+        error: execError.message
       };
     }
   }

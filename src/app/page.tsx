@@ -6,6 +6,14 @@ import TaskProgress, { Task } from "@/components/TaskProgress";
 import FileTree from "@/components/FileTree";
 import { Terminal, Cpu, Layout, Settings } from "lucide-react";
 
+interface AgentUpdateData {
+  type: "status" | "thought" | "tool_call" | "tool_result" | "done" | "error";
+  message?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "bot", content: "Hello! I am your AI coding agent. What can I help you build today?" }
@@ -40,7 +48,7 @@ export default function Home() {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
-            const data = JSON.parse(line.slice(6));
+            const data = JSON.parse(line.slice(6)) as AgentUpdateData;
             handleAgentUpdate(data);
           } catch (e) {
             console.error("Error parsing SSE data", e);
@@ -55,21 +63,23 @@ export default function Home() {
     }
   };
 
-  const handleAgentUpdate = (data: any) => {
+  const handleAgentUpdate = (data: AgentUpdateData) => {
     switch (data.type) {
       case "thought":
-        setMessages(prev => [...prev, { role: "bot", content: data.message, type: "thought" }]);
-        // Try to extract tasks from thoughts if they look like a plan
-        if (data.message.includes("1.") || data.message.includes("- [ ]")) {
-           const lines = data.message.split("\n");
-           const newTasks: Task[] = lines
-            .filter((l: string) => /^\d+\.|\-\s\[\s\]/.test(l))
-            .map((l: string, i: number) => ({
-              id: `task-${Date.now()}-${i}`,
-              description: l.replace(/^\d+\.|\-\s\[\s\]/, "").trim(),
-              status: "pending"
-            }));
-           if (newTasks.length > 0) setTasks(newTasks);
+        if (data.message) {
+          setMessages(prev => [...prev, { role: "bot", content: data.message!, type: "thought" }]);
+          // Try to extract tasks from thoughts if they look like a plan
+          if (data.message.includes("1.") || data.message.includes("- [ ]")) {
+             const lines = data.message.split("\n");
+             const newTasks: Task[] = lines
+              .filter((l: string) => /^\d+\.|\-\s\[\s\]/.test(l))
+              .map((l: string, i: number) => ({
+                id: `task-${Date.now()}-${i}`,
+                description: l.replace(/^\d+\.|\-\s\[\s\]/, "").trim(),
+                status: "pending" as const
+              }));
+             if (newTasks.length > 0) setTasks(newTasks);
+          }
         }
         break;
       case "tool_call":
@@ -78,7 +88,7 @@ export default function Home() {
         setTasks(prev => {
           const firstPending = prev.find(t => t.status === "pending");
           if (firstPending) {
-            return prev.map(t => t.id === firstPending.id ? { ...t, status: "in-progress" } : t);
+            return prev.map(t => t.id === firstPending.id ? { ...t, status: "in-progress" as const } : t);
           }
           return prev;
         });
@@ -90,18 +100,22 @@ export default function Home() {
         setTasks(prev => {
            const inProgress = prev.find(t => t.status === "in-progress");
            if (inProgress) {
-             return prev.map(t => t.id === inProgress.id ? { ...t, status: "completed" } : t);
+             return prev.map(t => t.id === inProgress.id ? { ...t, status: "completed" as const } : t);
            }
            return prev;
         });
         break;
       case "error":
-        setMessages(prev => [...prev, { role: "bot", content: data.message, type: "error" }]);
-        setTasks(prev => prev.map(t => t.status === "in-progress" ? { ...t, status: "error" } : t));
+        if (data.message) {
+          setMessages(prev => [...prev, { role: "bot", content: data.message!, type: "error" }]);
+          setTasks(prev => prev.map(t => t.status === "in-progress" ? { ...t, status: "error" as const } : t));
+        }
         break;
       case "done":
-        setMessages(prev => [...prev, { role: "bot", content: data.message }]);
-        setTasks(prev => prev.map(t => t.status === "pending" ? { ...t, status: "completed" } : t));
+        if (data.message) {
+          setMessages(prev => [...prev, { role: "bot", content: data.message! }]);
+          setTasks(prev => prev.map(t => t.status === "pending" ? { ...t, status: "completed" as const } : t));
+        }
         break;
     }
   };
